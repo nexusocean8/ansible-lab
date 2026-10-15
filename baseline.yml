@@ -1,0 +1,99 @@
+- name: Debian baseline
+  hosts: all
+  become: true
+
+  vars:
+    baseline_user: debian
+    baseline_ssh_port: 22
+    baseline_packages:
+      - ufw
+      - fail2ban
+      - unattended-upgrades
+      - htop
+      - curl
+      - git
+      - net-tools
+      - openssh-server
+      - sudo
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Upgrade all packages
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name: "{{ baseline_packages }}"
+        state: present
+
+    # --- Automation user ---
+
+    - name: Ensure sudo group exists
+      ansible.builtin.group:
+        name: sudo
+        state: present
+
+    - name: Create automation user
+      ansible.builtin.user:
+        name: "{{ baseline_user }}"
+        shell: /bin/bash
+        create_home: true
+        groups: sudo
+        append: true
+        state: present
+
+    - name: Grant passwordless sudo to automation user
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ baseline_user }}"
+        content: "{{ baseline_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        owner: root
+        group: root
+        mode: "0440"
+        validate: "visudo -cf %s"
+
+    # --- Firewall ---
+
+    - name: Limit SSH through firewall
+      community.general.ufw:
+        rule: limit
+        port: "{{ baseline_ssh_port }}"
+        proto: tcp
+
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
+
+    # --- Fail2ban ---
+
+    - name: Ensure fail2ban is running
+      ansible.builtin.service:
+        name: fail2ban
+        state: started
+        enabled: true
+
+    - name: Configure fail2ban sshd jail
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [sshd]
+          enabled = true
+          port = {{ baseline_ssh_port }}
+          filter = sshd
+          logpath = /var/log/auth.log
+          maxretry = 3
+          bantime = 86400
+          findtime = 600
+        mode: "0644"
+      notify: Restart fail2ban
+
+  handlers:
+    - name: Restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted
