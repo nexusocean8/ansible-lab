@@ -1,4 +1,4 @@
-# Ansible Home lab — Command Reference
+# Ansible Home Lab — Command Reference
 
 ## SSH Setup
 
